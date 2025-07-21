@@ -16,4 +16,4 @@ jobs:
       uses: astronomer/deploy-action@v0.10.1
       with:
         deployment-id: cmddd9wjq067701nbsd7rnqiy
-        workspace-id: cm2yy7ulb05xl01i3jifkw0vt
+        workspace: cm2yy7ulb05xl01i3jifkw0vt
