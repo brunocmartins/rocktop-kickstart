@@ -28,6 +28,7 @@ with DAG(
         odbc_conn_id="odbc_default",
         table="MDR.DBO.SAMPLE_TABLE",
         batch_size=1000,
+        method="TRUNCATE_INSERT",
     )
 
     another_transfer_task
