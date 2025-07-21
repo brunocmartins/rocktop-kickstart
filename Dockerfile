@@ -29,4 +29,4 @@ RUN DEBIAN_VERSION=$(grep VERSION_ID /etc/os-release | cut -d '"' -f 2 | cut -d 
     # Clean up apt caches to reduce image size
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-USER airflow
+USER astro
