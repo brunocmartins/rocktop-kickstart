@@ -1,19 +1,35 @@
 import logging
-from typing import Any, Sequence, Literal
+import time
+from typing import Any, Literal, Sequence
 
 from airflow.models import BaseOperator
-from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
 from airflow.providers.odbc.hooks.odbc import OdbcHook
+from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
 from airflow.utils.context import Context
-import time
 
 log = logging.getLogger(__name__)
 
+
 class SnowflakeToOdbcOperator(BaseOperator):
     """
-    Airflow Operator to transfer data from Snowflake to a SQL Server database
-    using OdbcHook and pyodbc's fast_executemany.
+    Transfers data from a Snowflake database to a target database accessible via
+    an ODBC connection.
+
+    This operator executes a query on Snowflake, fetches the results, and then
+    efficiently loads them into a target table using the pyodbc `fast_executemany`
+    feature for high-performance batch inserts. It supports both appending data
+    and truncating the target table before loading.
+
+    :param sql: The SQL query to execute on the Snowflake database.
+    :param table: The name of the target table in the ODBC database.
+    :param snowflake_conn_id: Airflow connection ID for the Snowflake connection.
+    :param odbc_conn_id: Airflow connection ID for the ODBC target connection.
+    :param batch_size: The number of rows to insert in each batch.
+    :param method: The loading method. Options are:
+        - "INSERT": Appends data to the target table.
+        - "TRUNCATE_INSERT": Truncates the target table before inserting data.
     """
+
     template_fields: Sequence[str] = ("sql", "snowflake_conn_id", "odbc_conn_id", "method")
     template_ext: Sequence[str] = (".sql",)
     template_fields_renderers = {"sql": "sql"}
@@ -28,14 +44,6 @@ class SnowflakeToOdbcOperator(BaseOperator):
         method: Literal["INSERT", "TRUNCATE_INSERT"] = "INSERT",
         **kwargs: Any,
     ) -> None:
-        """
-        :param sql: SQL query to execute on Snowflake.
-        :param table: Target table to insert data into (should be fully qualified if needed).
-        :param snowflake_conn_id: Airflow connection ID for Snowflake.
-        :param odbc_conn_id: Airflow ODBC connection ID for SQL Server.
-        :param batch_size: Number of rows per batch insert.
-        :param method: Load method: "INSERT" (append), "TRUNCATE_INSERT" (truncate then insert).
-        """
         super().__init__(**kwargs)
         self.sql = sql
         self.table = table
@@ -46,11 +54,17 @@ class SnowflakeToOdbcOperator(BaseOperator):
 
     def execute(self, context: Context) -> None:
         """
-        Executes the SQL on Snowflake and loads the results into SQL Server via ODBC in batches
-        using fast_executemany.
-        Supports different load methods and ensures idempotency for destructive operations.
+        Executes the data transfer from Snowflake to the ODBC target.
+
+        This method connects to both Snowflake and the ODBC database, fetches data
+        in a streaming fashion, and performs batch inserts. If `TRUNCATE_INSERT`
+        is specified, it ensures the truncate operation is performed only if data
+        is returned from the source query.
         """
-        log.info(f"Transferring data from Snowflake to SQL Server table '{self.table}' using ODBC (fast_executemany), method={self.method}")
+        log.info(
+            f"Transferring data from Snowflake to table '{self.table}' "
+            f"using ODBC (fast_executemany), method={self.method}"
+        )
         snowflake_hook = SnowflakeHook(snowflake_conn_id=self.snowflake_conn_id)
         odbc_hook = OdbcHook(odbc_conn_id=self.odbc_conn_id)
 
@@ -81,10 +95,9 @@ class SnowflakeToOdbcOperator(BaseOperator):
                                     first_row = row
                                     got_data = True
                                     if self.method == "TRUNCATE_INSERT":
-                                        log.info(f"Truncating table {self.table} before insert (method=TRUNCATE_INSERT)")
+                                        log.info(f"Truncating table {self.table} (method=TRUNCATE_INSERT)")
                                         odbc_cursor.execute(f"TRUNCATE TABLE {self.table}")
                                         log.info(f"Table {self.table} truncated.")
-                                    # Insert the first row into the batch
                                     batch.append(first_row)
                                 else:
                                     batch.append(row)
@@ -94,20 +107,28 @@ class SnowflakeToOdbcOperator(BaseOperator):
                                     odbc_cursor.executemany(insert_sql, batch)
                                     batch_time = time.time() - batch_start
                                     total_rows += len(batch)
-                                    log.info(f"Loaded batch {batch_num}: {len(batch)} rows in {batch_time:.2f}s (total loaded: {total_rows})")
+                                    log.info(
+                                        f"Loaded batch {batch_num}: {len(batch)} rows in "
+                                        f"{batch_time:.2f}s (total loaded: {total_rows})"
+                                    )
                                     batch.clear()
-                            # Insert any remaining rows
+
                             if batch:
                                 batch_num += 1
                                 batch_start = time.time()
                                 odbc_cursor.executemany(insert_sql, batch)
                                 batch_time = time.time() - batch_start
                                 total_rows += len(batch)
-                                log.info(f"Loaded final batch {batch_num}: {len(batch)} rows in {batch_time:.2f}s (total loaded: {total_rows})")
+                                log.info(
+                                    f"Loaded final batch {batch_num}: {len(batch)} rows in "
+                                    f"{batch_time:.2f}s (total loaded: {total_rows})"
+                                )
+
                             if not got_data:
-                                log.warning("No data returned from Snowflake query. No changes made to target table.")
+                                log.warning("No data returned from Snowflake. No changes made to target table.")
                                 odbc_conn.rollback()
                                 return
+
                             odbc_conn.commit()
                             elapsed = time.time() - start_time
                             log.info(f"Data transfer complete. Total rows loaded: {total_rows} in {elapsed:.2f}s")

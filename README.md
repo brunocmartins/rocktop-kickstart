@@ -1,48 +1,110 @@
-Overview
-========
+# Rocktop Kickstart - Astronomer Airflow Project
 
-Welcome to Astronomer! This project was generated after you ran 'astro dev init' using the Astronomer CLI. This readme describes the contents of the project, as well as how to run Apache Airflow on your local machine.
+## Overview
 
-Project Contents
-================
+This is an Astronomer Airflow project designed for data pipeline orchestration with focus on batch processing, data transfer between Snowflake and MSSQL, and continuous monitoring workflows. The project includes custom operators for data transfer operations and various DAGs for different processing scenarios.
 
-Your Astro project contains the following files and folders:
+## Project Contents
 
-- dags: This folder contains the Python files for your Airflow DAGs. By default, this directory includes one example DAG:
-    - `example_astronauts`: This DAG shows a simple ETL pipeline example that queries the list of astronauts currently in space from the Open Notify API and prints a statement for each astronaut. The DAG uses the TaskFlow API to define tasks in Python, and dynamic task mapping to dynamically print a statement for each astronaut. For more on how this DAG works, see our [Getting started tutorial](https://www.astronomer.io/docs/learn/get-started-with-airflow).
-- Dockerfile: This file contains a versioned Astro Runtime Docker image that provides a differentiated Airflow experience. If you want to execute other commands or overrides at runtime, specify them here.
-- include: This folder contains any additional files that you want to include as part of your project. It is empty by default.
-- packages.txt: Install OS-level packages needed for your project by adding them to this file. It is empty by default.
-- requirements.txt: Install Python packages needed for your project by adding them to this file. It is empty by default.
-- plugins: Add custom or community plugins for your project to this file. It is empty by default.
-- airflow_settings.yaml: Use this local-only file to specify Airflow Connections, Variables, and Pools instead of entering them in the Airflow UI as you develop DAGs in this project.
+### DAGs
+- **`batch_initiation_dag.py`**: Monitors batch completion status and triggers downstream processing
+- **`daily_processing_dag.py`**: Handles daily data processing workflows
+- **`fadata_dag.py`**: FA data processing pipeline
+- **`Raw_Layer_Preparation.py`**: Prepares raw data layer for downstream processing
+- **`ConnectivityTest.py`**: Tests connectivity between different data sources
 
-Deploy Your Project Locally
-===========================
+### Custom Components
+- **Custom Operators** (`include/custom_operators/`):
+  - `snowflake_to_odbc_operator.py`: Transfers data from Snowflake to ODBC connections
+- **Custom Sensors** (`include/custom_sensors/`):
+  - `async_sql_sensor.py`: Asynchronous SQL sensor for monitoring metadata
+- **Custom Triggers** (`include/custom_triggers/`):
+  - `sql_trigger.py`: SQL-based trigger
 
-1. Start Airflow on your local machine by running 'astro dev start'.
+## Prerequisites
 
-This command will spin up 4 Docker containers on your machine, each for a different Airflow component:
 
-- Postgres: Airflow's Metadata Database
-- Webserver: The Airflow component responsible for rendering the Airflow UI
-- Scheduler: The Airflow component responsible for monitoring and triggering tasks
-- Triggerer: The Airflow component responsible for triggering deferred tasks
+## Installation & Setup
 
-2. Verify that all 4 Docker containers were created by running 'docker ps'.
+### 1. Install Astronomer CLI
+- Follow the installation steps on the official [Astro CLI documentation](https://www.astronomer.io/docs/astro/cli/install-cli/) based on your OS
 
-Note: Running 'astro dev start' will start your project with the Airflow Webserver exposed at port 8080 and Postgres exposed at port 5432. If you already have either of those ports allocated, you can either [stop your existing Docker containers or change the port](https://www.astronomer.io/docs/astro/cli/troubleshoot-locally#ports-are-not-available-for-my-local-airflow-webserver).
+### 2. Clone and Initialize Project
+```bash
+git clone git@github.com:brunocmartins/rocktop-kickstart.git
+cd rocktop-kickstart
+```
 
-3. Access the Airflow UI for your local Airflow project. To do so, go to http://localhost:8080/ and log in with 'admin' for both your Username and Password.
+### 3. Configure Airflow Connections
+Before running the DAGs, configure the following Airflow connections in the Airflow UI or via `airflow_settings.yaml`:
 
-You should also be able to access your Postgres Database at 'localhost:5432/postgres'.
+#### Required Connections:
+- **Snowflake connection**
+  - Connection Type: `Snowflake`
+  - Login: Your Snowflake username
+  - Password: Your Snowflake password or private key passphrase
+  - Schema: Your Snowflake schema
+  - Extra:
+    - Warehouse: Your Snowflake warehouse
+    - Account: Your Snowflake account
+    - Role: Your Snowflake role
+    - Database: Your Snowflake database
+    - Region: Your Snowflake region
+    - Private key content / private key path: Your Snowflake private key content (base64 encoded) or path to your mapped private key file
 
-Deploy Your Project to Astronomer
-=================================
+- **Microsoft SQL Server connection**
+  - Connection Type: `mssql`
+  - Host: Your MSSQL server hostname/IP
+  - Login: Your MSSQL username
+  - Password: Your MSSQL password
+  - Schema: Your MSSQL database name
+  - Port: Your MSSQL database port
 
-If you have an Astronomer account, pushing code to a Deployment on Astronomer is simple. For deploying instructions, refer to Astronomer documentation: https://www.astronomer.io/docs/astro/deploy-code/
+- **ODBC Connection** 
+  - Connection Type: `odbc`
+  - Host: Your database server hostname/IP in the format of `<database_host>,<database_port>`
+  - Login: Your database username
+  - Password: Your database password
+  - Schema: Your database database name
+  - Extra:
+    - Driver: "ODBC Driver 18 for SQL Server"
+    - TrustServerCertificate: "Yes"
+    - ApplicationIntent: "ReadOnly"
 
-Contact
-=======
+## Running the Project
 
-The Astronomer CLI is maintained with love by the Astronomer team. To report a bug or suggest a change, reach out to our support.
+### Local Development
+
+1. **Start Airflow locally**:
+   ```bash
+   astro dev start
+   ```
+
+2. **Access Airflow UI**:
+   - URL: http://localhost:8080/
+   - Username: `admin`
+   - Password: `admin`
+
+### Port Configuration
+If ports 8080 or 5432 are already in use, you can:
+- Stop existing containers using those ports, or
+- Change ports by modifying the [Astronomer configuration](https://www.astronomer.io/docs/astro/cli/astro-config-set) (e.g., `astro config set webserver.port 8081`)
+
+## Development Guidelines
+
+### Adding New DAGs
+1. Create new Python files in the `dags/` directory
+2. Follow the existing naming conventions
+3. Include proper documentation and tags
+4. Test locally before committing
+
+### Custom Operators
+- Place new operators in `include/custom_operators/`
+- Follow the existing operator patterns
+- Include comprehensive docstrings
+- Add proper error handling
+
+### Testing
+- Use the `tests/` directory for unit tests
+- Test DAGs locally before deployment
+- Verify connections and permissions
